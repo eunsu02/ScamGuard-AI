@@ -8,3 +8,10 @@ yt-dlp          # 유튜브 영상 다운로드 (가장 업데이트가 빠름)
 opencv-python   # 영상 프레임 추출 및 처리
 mediapipe       # 얼굴 영역만 정교하게 잘라내기 (Face Detection)
 timm
+
+transformers     # KoBERT 모델 로드 및 추론용
+sentencepiece    # KoBERT 토크나이저 호환용
+youtube-transcript-api  # 유튜브 자막 수집용
+pandas           # 데이터 처리용
+emoji            # 텍스트 전처리용
+soynlp           # 한국어 자연어 처리 보조

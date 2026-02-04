@@ -1,24 +1,30 @@
-from fastapi import FastAPI, File, UploadFile
-from app.model_loader import predict_deepfake
-from fastapi import FastAPI, HTTPException
-from app.model_loader import get_model
-from app.utils import process_youtube_video
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query
+from app.kobert_model_loader import predict_scam_kobert 
+from app.model_loader import get_model 
+from app.utils import process_youtube_video, get_youtube_text, split_text 
 from torchvision import transforms
 from PIL import Image
 import torch
 import os
 import numpy as np
+from transformers import BertTokenizer, BertForSequenceClassification
 
 app = FastAPI(title="ScamGuard AI API")
 
+# --- 딥페이크 모델 로드 ---
 model, device = get_model("models/scamguard_model.pth")
-
+# --- KoBERT 사기 자막 탐지 모델 로드 ---
+KO_MODEL_PATH = "models/kobert_model"
+ko_tokenizer = BertTokenizer.from_pretrained(KO_MODEL_PATH)
+ko_model = BertForSequenceClassification.from_pretrained(KO_MODEL_PATH)
+ko_model.to(device)
+ko_model.eval()
 
 @app.get("/")
 def read_root():
     return {"message": "Scam Guard AI Server is Running!"}
 
-
+# --- 딥페이크 전처리 설정 ---
 transformer = transforms.Compose(
     [
         transforms.ToPILImage(),
@@ -28,7 +34,7 @@ transformer = transforms.Compose(
     ]
 )
 
-
+# --- 딥페이크 탐지 엔드포인트 ---
 @app.post("/deepfake")
 async def predict_deepfake_from_url(url: str):
     # 1. 유튜브에서 얼굴 추출
@@ -51,7 +57,54 @@ async def predict_deepfake_from_url(url: str):
         "message": "🚨 딥페이크 의심" if prob > 0.5 else "✅ 정상 영상",
     }
 
+# --- 자막 사기 탐지 엔드포인트 ---
+@app.post(
+    "/youtube-scam", 
+    tags=["자막 분석"], 
+    summary="유튜브 자막 사기 판별",
+    description="KoBERT 모델을 사용하여 유튜브 자막을 문장 단위로 분석하고 사기 위험도를 판별합니다."
+)
+async def analyze_text_scam(
+    url: str = Query(..., description="분석할 유튜브 영상 URL", example="https://www.youtube.com/watch?v=ANCwJT3E7ko")
+):
+    video_id = url.split("v=")[-1].split("&")[0]
+    raw_text = get_youtube_text(video_id)
+    if not raw_text:
+        raise HTTPException(status_code=400, detail="자막을 가져올 수 없는 영상입니다.")
 
+    chunks = split_text(raw_text)
+    scam_results = []
+    max_prob = 0.0 
+    
+    for sentence in chunks:
+        prob = predict_scam_kobert(sentence)
+        
+        if prob > max_prob:
+            max_prob = prob
+        
+        if prob >= 0.7:
+            scam_results.append({
+                "text": sentence,
+                "scam_probability": f"{round(prob * 100, 2)}%"
+            })
+
+    # 3단계 상태 판별 로직 (위험, 주의, 안전)
+    if max_prob >= 0.9:
+        final_status = "🚨 위험"
+    elif max_prob >= 0.7:
+        final_status = "⚠️ 주의"
+    else:
+        final_status = "✅ 안전"
+
+    return {
+        "url": url,
+        "total_sentences": len(chunks),
+        "highest_probability": f"{round(max_prob * 100, 2)}%",
+        "detected_scams": scam_results,
+        "status": final_status
+    }
+
+# --- 배치 이미지 테스트 엔드포인트 ---
 @app.get("/test-batch")
 async def test_batch_images():
     # 1. 테스트 이미지 폴더 경로 설정
