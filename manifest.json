@@ -1,0 +1,13 @@
+{
+    "manifest_version": 3,
+    "name": "ScamGuard AI",
+    "version": "1.0",
+    "description": "유튜브 사기 탐지 및 텍스트 분석 도구",
+    "permissions": ["activeTab", "scripting"],
+    "host_permissions": [
+      "http://localhost:8000/*"
+    ],
+    "action": {
+      "default_popup": "popup.html"
+    }
+  }

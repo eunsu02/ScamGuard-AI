@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"> <style>
+    body { width: 320px; padding: 15px; font-family: sans-serif; background-color: #f8f9fa; }
+    #result { display:none; margin-bottom: 15px; padding: 12px; border-radius: 8px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .status-box { font-weight: bold; font-size: 18px; margin-bottom: 5px; }
+    button { width: 100%; padding: 12px; cursor: pointer; border: none; border-radius: 6px; font-weight: bold; margin-bottom: 8px; }
+    .btn-scam { background: #000; color: #fff; }
+    .btn-deepfake { background: #fff; color: #000; border: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <h2>ScamGuard AI</h2>
+  
+  <div id="result">
+    <div id="statusText" class="status-box"></div>
+    <div id="probText" style="font-size: 13px; color: #666;"></div>
+    <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
+    <div id="reasonList"></div>
+  </div>
+
+  <button id="analyzeBtn" class="btn-scam">자막 사기 분석</button>
+  <button id="webLinkBtn" class="btn-deepfake">딥페이크 정밀 분석</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>
