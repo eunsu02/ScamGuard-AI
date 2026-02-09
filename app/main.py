@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Query, Body
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query, Body, Depends, Request
 from app.kobert_model_loader import predict_scam_kobert 
 from app.model_loader import get_model 
 from app.utils import process_youtube_video, get_youtube_text, split_text, extract_video_id, apply_keyword_bias
@@ -11,8 +11,17 @@ import numpy as np
 from transformers import BertTokenizer, BertForSequenceClassification
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from sqlalchemy.orm import Session
+from .database import engine, Base, get_db
+from .models import AnalysisHistory
+from fastapi.templating import Jinja2Templates
 
 app = FastAPI(title="ScamGuard AI API")
+
+# 템플릿 설정
+templates = Jinja2Templates(directory="template")
+# 서버 시작 시 테이블 자동 생성
+Base.metadata.create_all(bind=engine)
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,6 +43,11 @@ ko_model.eval()
 def read_root():
     return {"message": "Scam Guard AI Server is Running!"}
 
+# --- 최근 분석 기록 10개를 가져오는 엔드포인트 ---
+@app.get("/recent-results")
+async def get_recent_results(db: Session = Depends(get_db)):
+    return db.query(AnalysisHistory).order_by(AnalysisHistory.created_at.desc()).limit(10).all()
+
 # --- 딥페이크 전처리 설정 ---
 transformer = transforms.Compose(
     [
@@ -46,7 +60,7 @@ transformer = transforms.Compose(
 
 # --- 딥페이크 탐지 엔드포인트 ---
 @app.post("/deepfake")
-async def predict_deepfake_from_url(url: str):
+async def predict_deepfake_from_url(url: str, db: Session = Depends(get_db)):
     # 1. 유튜브에서 얼굴 추출
     face_img = process_youtube_video(url)
     if face_img is None:
@@ -63,12 +77,25 @@ async def predict_deepfake_from_url(url: str):
         output = model(input_tensor)
         prob = torch.nn.functional.softmax(output, dim=1)[0][1].item()
 
-    return {
+    result = {
         "url": url,
         "is_fake": prob > 0.5,
         "confidence": round(prob * 100, 2),
         "message": "🚨 딥페이크 의심" if prob > 0.5 else "✅ 정상 영상",
     }
+
+    # 분석 완료 시 DB 자동 저장
+    history = AnalysisHistory(
+        url=url,
+        video_id=extract_video_id(url),
+        status=result["message"],
+        deepfake_prob=result["confidence"],
+        is_fake=1 if result["is_fake"] else 0
+    )
+    db.add(history)
+    db.commit()
+
+    return result
 
 
 # --- 사기 탐지 공통 분석 로직 수행 함수 ---
@@ -112,7 +139,8 @@ def run_scam_analysis_logic(chunks):
     summary="유튜브 자막 사기 판별"
 )
 async def analyze_text_scam(
-    url: str = Query(..., description="분석할 유튜브 영상 URL")
+    url: str = Query(..., description="분석할 유튜브 영상 URL"),
+    db: Session = Depends(get_db)
 ):
     # 비디오 ID 추출 및 자막 데이터 획득
     video_id = extract_video_id(url)
@@ -126,6 +154,22 @@ async def analyze_text_scam(
     # 자막 분할 및 공통 분석 함수 호출
     chunks = split_text(raw_text)
     max_prob, scam_results, final_status = run_scam_analysis_logic(chunks)
+
+    # 분석 완료 시 DB 자동 저장
+    keywords_list = []
+    for scam in scam_results:
+        for r in scam['reason']:
+            keywords_list.append(r['keyword'])
+
+    history = AnalysisHistory(
+        url=url,
+        video_id=video_id,
+        status=final_status,
+        scam_prob=round(max_prob * 100, 2),
+        keywords=list(set(keywords_list)) # 중복 제거 후 저장
+    )
+    db.add(history)
+    db.commit()
 
     return {
         "url": url,
@@ -201,90 +245,5 @@ async def test_batch_images():
     return {"total_count": len(results), "predictions": results}
 
 @app.get("/web-analysis", response_class=HTMLResponse)
-async def get_web_page(url: str = Query(None, description="유튜브 URL")):
-    return """
-    <!DOCTYPE html>
-    <html lang="ko">
-    <head>
-        <meta charset="UTF-8">
-        <title>ScamGuard AI - Deepfake Lab</title>
-        <style>
-            body { margin: 0; padding: 0; font-family: -apple-system, system-ui, sans-serif; background-color: #ffffff; color: #1d1d1f; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-            .container { width: 100%; max-width: 480px; padding: 20px; }
-            h1 { font-size: 28px; font-weight: 700; margin: 0 0 10px 0; letter-spacing: -0.5px; }
-            p { font-size: 15px; color: #86868b; margin-bottom: 40px; }
-            #thumbContainer { width: 100%; aspect-ratio: 16/9; background: #f5f5f7; border-radius: 14px; margin-bottom: 24px; overflow: hidden; display: none; }
-            #previewImg { width: 100%; height: 100%; object-fit: cover; }
-            input { width: 100%; padding: 18px; box-sizing: border-box; border: none; background: #f5f5f7; border-radius: 12px; font-size: 15px; margin-bottom: 15px; }
-            input:focus { background: #e8e8ed; outline: none; }
-            button { width: 100%; padding: 18px; border: none; background: #000; color: #fff; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; }
-            button:hover { opacity: 0.8; }
-            button:disabled { background: #d2d2d7; cursor: not-allowed; }
-            #statusArea { margin-top: 40px; display: none; }
-            .bar-bg { width: 100%; height: 2px; background: #f5f5f7; margin-bottom: 10px; }
-            #bar { width: 0%; height: 100%; background: #000; transition: width 0.3s; }
-            #log { font-size: 12px; text-align: center; color: #86868b; }
-            #resultCard { margin-top: 30px; padding: 25px; border-radius: 15px; display: none; text-align: center; }
-            .safe { background: #f5f5f7; color: #1d1d1f; }
-            .danger { background: #fff2f2; color: #ff3b30; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>Deepfake Lab</h1>
-            <p>정밀 프레임 분석 대시보드</p>
-            <div id="thumbContainer"><img id="previewImg" src=""></div>
-            <input type="text" id="urlInput" placeholder="유튜브 링크를 입력하세요" oninput="updateThumb()">
-            <button onclick="start()" id="btn">분석 시작</button>
-            <div id="statusArea">
-                <div class="bar-bg"><div id="bar"></div></div>
-                <div id="log">READY</div>
-                <div id="resultCard">
-                    <div id="resTitle" style="font-size: 18px; font-weight: 700;"></div>
-                    <div id="resConf" style="font-size: 13px; margin-top: 5px; opacity: 0.6;"></div>
-                </div>
-            </div>
-        </div>
-        <script>
-            function updateThumb() {
-                const url = document.getElementById('urlInput').value;
-                const reg = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
-                const match = url.match(reg);
-                const id = (match && match[7].length == 11) ? match[7] : false;
-                const container = document.getElementById('thumbContainer');
-                if(id) {
-                    document.getElementById('previewImg').src = `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
-                    container.style.display = 'block';
-                } else { container.style.display = 'none'; }
-            }
-            window.onload = () => {
-                const url = new URLSearchParams(window.location.search).get('url');
-                if(url) { document.getElementById('urlInput').value = url; updateThumb(); }
-            };
-            async function start() {
-                const url = document.getElementById('urlInput').value;
-                const btn = document.getElementById('btn');
-                const bar = document.getElementById('bar');
-                const log = document.getElementById('log');
-                const resCard = document.getElementById('resultCard');
-                btn.disabled = true;
-                document.getElementById('statusArea').style.display = 'block';
-                resCard.style.display = 'none';
-                let p = 0;
-                const inv = setInterval(() => { p = Math.min(p + 2, 95); bar.style.width = p + '%'; log.innerText = 'ANALYZING... ' + Math.floor(p) + '%'; }, 500);
-                try {
-                    const r = await fetch(`/deepfake?url=${encodeURIComponent(url)}`, { method: 'POST' });
-                    const d = await r.json();
-                    clearInterval(inv);
-                    bar.style.width = '100%';
-                    log.innerText = 'COMPLETE';
-                    resCard.style.display = 'block';
-                    resCard.className = d.is_fake ? 'danger' : 'safe';
-                    document.getElementById('resTitle').innerText = d.message;
-                    document.getElementById('resConf').innerText = 'CONFIDENCE: ' + d.confidence + '%';
-                } catch(e) { log.innerText = 'ERROR'; } finally { btn.disabled = false; }
-            }
-        </script>
-    </body>
-    </html>
-    """
+async def get_web_page(request: Request, url: str = Query(None)):
+    return templates.TemplateResponse("web_analysis.html", {"request": request, "url": url})
