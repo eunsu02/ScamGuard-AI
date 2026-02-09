@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>ScamCut AI - 정밀 분석 센터</title>
+    <style>
+        /* 1. 기본 레이아웃 및 폰트 설정 */
+        body { margin: 0; padding: 0; display: flex; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; height: 100vh; background: #ffffff; overflow: hidden; color: #1d1d1f; }
+        
+        .main-content { flex: 1; display: flex; align-items: flex-start; justify-content: center; border-right: 1px solid #f2f2f7; height: 100vh; padding: 60px 40px; box-sizing: border-box; overflow-y: auto; }
+        .analysis-wrapper { display: flex; flex-direction: row; align-items: flex-start; justify-content: center; width: 100%; max-width: 1200px; transition: all 0.6s cubic-bezier(0.23, 1, 0.32, 1); }
+
+        .input-container { width: 520px; flex-shrink: 0; display: flex; flex-direction: column; }
+        
+        /* 2. 사이드바 및 말줄임표 설정 */
+        .sidebar { width: 380px; background: #fafafa; display: flex; flex-direction: column; height: 100vh; border-left: 1px solid #f2f2f7; flex-shrink: 0; }
+        .sidebar-header { padding: 30px 20px 15px; font-size: 15px; color: #8e8e93; font-weight: 800; }
+        .sidebar-info { padding: 0 20px 25px; border-bottom: 2px solid #f2f2f7; }
+        .info-item { font-size: 14px; line-height: 1.6; color: #48484a; margin-bottom: 15px; }
+        .feed-list { flex: 1; overflow-y: auto; padding: 15px; }
+        
+        h1 { font-size: 44px; font-weight: 900; margin: 0; letter-spacing: -2px; color: #000; line-height: 1.1; }
+        .subtitle { color: #8e8e93; font-size: 19px; margin: 10px 0 35px 0; }
+        
+        #thumbContainer { width: 100%; aspect-ratio: 16/9; background: #f5f5f7; border-radius: 12px; margin-bottom: 25px; overflow: hidden; display: none; border: 1px solid #e5e5ea; }
+        #previewImg { width: 100%; height: 100%; object-fit: cover; }
+        
+        input { width: 100%; padding: 22px; box-sizing: border-box; border: 2px solid #e5e5ea; background: #fff; border-radius: 12px; font-size: 18px; margin-bottom: 20px; outline: none; }
+        
+        .btn-group { display: flex; gap: 15px; }
+        button { flex: 1; padding: 20px; border: none; border-radius: 12px; font-size: 17px; font-weight: 800; cursor: pointer; color: #fff; transition: all 0.2s; }
+        #scamBtn { background: #007aff; }
+        #dfBtn { background: #000000; }
+        button:hover { transform: translateY(-2px); opacity: 0.9; }
+
+        /* 상태바 */
+        #statusArea { margin-top: 35px; width: 100%; display: none; }
+        .progress-track { width: 100%; height: 4px; background: #f5f5f7; border-radius: 2px; overflow: hidden; }
+        #progressBar { height: 100%; width: 0%; background: #000; transition: width 0.4s ease; }
+        #log { font-size: 15px; color: #8e8e93; text-align: center; margin-top: 15px; font-weight: 700; }
+
+        /* 3.  결과 UI: 파스텔 배경 및 텍스트 경고 메시지 */
+        #resultCard { 
+            width: 0; opacity: 0; overflow: hidden; visibility: hidden;
+            border: 1px solid rgba(0,0,0,0.02); border-radius: 12px; 
+            flex-shrink: 0; transition: all 0.7s cubic-bezier(0.23, 1, 0.32, 1);
+            background: #ffffff;
+        }
+        
+        .result-active #resultCard { width: 500px; opacity: 1; visibility: visible; padding: 40px; margin-left: 40px; box-shadow: 0 10px 40px rgba(0,0,0,0.03); margin-bottom: 60px; }
+
+        #resTitle { font-weight: 900; font-size: 32px; margin-bottom: 10px; letter-spacing: -1.5px; }
+        
+        #cautionNotice { font-size: 15px; font-weight: 700; margin-bottom: 25px; line-height: 1.6; padding: 16px; border-radius: 8px; display: none; }
+
+        .score-label { font-size: 15px; font-weight: 700; color: #86868b; margin-bottom: 12px; display: block; }
+        .gauge-outer { height: 24px; background: rgba(0,0,0,0.06); border-radius: 12px; overflow: hidden; width: 100%; margin-bottom: 12px; }
+        #gaugeFill { height: 100%; width: 0%; transition: width 1s ease-in-out; }
+        #resProbValue { font-size: 26px; font-weight: 900; display: block; }
+
+        #resReasons { font-size: 16px; line-height: 2.0; border-top: 1.5px solid rgba(0,0,0,0.05); padding-top: 30px; margin-top: 30px; color: #3a3a3c; }
+        
+        .detected-text-box { background: rgba(255,255,255,0.6); padding: 18px; border-radius: 10px; font-size: 14.5px; line-height: 1.7; border: 1px solid rgba(0,0,0,0.03); color: #1d1d1f; }
+        .reason-tag { display: inline-block; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 13px; margin-right: 8px; color: #1d1d1f; margin-bottom: 4px; }
+
+        /* 4. 피드 아이템 복구 */
+        .feed-card { background: #fff; padding: 15px; border-radius: 12px; margin-bottom: 12px; border: 1px solid #efeff4; display: flex; gap: 12px; cursor: pointer; align-items: center; }
+        .feed-thumb { width: 90px; height: 50px; background: #f5f5f7; border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+        .feed-thumb img { width: 100%; height: 100%; object-fit: cover; }
+        .feed-info { flex: 1; min-width: 0; }
+        .ellipsis-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; display: block; font-weight: 800; font-size: 14px; margin-bottom: 4px; }
+        .tag { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 800; margin-bottom: 6px; }
+    </style>
+</head>
+<body>
+    <div class="main-content">
+        <div class="analysis-wrapper" id="analysisWrapper">
+            <div class="input-container">
+                <div class="title-group">
+                    <h1>ScamCut AI<br>정밀 분석 센터</h1>
+                    <p class="subtitle">AI 기반 통합 영상 변조 및 자막 패턴 정밀 검증</p>
+                </div>
+                
+                <div id="thumbContainer"><img id="previewImg" src=""></div>
+                <input type="text" id="urlInput" placeholder="유튜브 영상 또는 쇼츠 링크를 입력하세요" oninput="updateThumb()">
+                
+                <div class="btn-group">
+                    <button onclick="startScam()" id="scamBtn">자막 패턴 분석</button>
+                    <button onclick="startDeepfake()" id="dfBtn">딥페이크 정밀 분석</button>
+                </div>
+
+                <div id="statusArea">
+                    <div class="progress-track"><div id="progressBar"></div></div>
+                    <div id="log">분석 대기 중</div>
+                </div>
+            </div>
+
+            <div id="resultCard">
+                <div id="resTitle"></div>
+                <div id="cautionNotice"></div>
+
+                <div style="margin-bottom: 25px;">
+                    <span class="score-label" id="resProbLabel">데이터 분석 결과</span>
+                    <div class="gauge-outer"><div id="gaugeFill"></div></div>
+                    <span id="resProbValue">0%</span>
+                </div>
+                <div id="resReasons"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="sidebar-header">시스템 안내</div>
+        <div class="sidebar-info">
+            <div class="info-item">
+                <span style="color:#ff3b30; font-weight:800; display:block; margin-bottom:4px;">주의사항</span>
+                본 판독 결과는 인공지능 모델의 분석치이며 법적 판단의 근거가 될 수 없습니다.
+            </div>
+            <div class="info-item">
+                <span style="color:#007aff; font-weight:800; display:block; margin-bottom:4px;">보안 빅데이터 기여</span>
+                사용자님의 분석 데이터는 실시간 보안 빅데이터로 통합되어 범죄 차단의 핵심 자산이 됩니다.
+            </div>
+        </div>
+        <div class="sidebar-header" style="padding-top: 20px;">실시간 보안 피드</div>
+        <div id="feedList" class="feed-list"></div>
+    </div>
+
+    <script>
+        async function loadFeed() {
+            try {
+                const res = await fetch('/recent-results');
+                const data = await res.json();
+                const list = document.getElementById('feedList');
+                list.innerHTML = data.map(item => {
+                    const scam = item.scam_prob !== null ? `${item.scam_prob}%` : '-';
+                    const df = item.deepfake_prob !== null ? `${item.deepfake_prob}%` : '-';
+                    const isDanger = item.status.includes('위험') || item.status.includes('의심');
+                    const statusColor = isDanger ? '#fee2e2' : (item.status.includes('주의') ? '#fff3cd' : '#f2f2f7');
+                    const textColor = isDanger ? '#ff3b30' : (item.status.includes('주의') ? '#856404' : '#1d1d1f');
+                    return `
+                        <div class="feed-card" onclick="window.open('${item.url}', '_blank')">
+                            <div class="feed-thumb"><img src="https://img.youtube.com/vi/${item.video_id}/mqdefault.jpg"></div>
+                            <div class="feed-info">
+                                <div class="tag" style="background:${statusColor}; color:${textColor};">${item.status}</div>
+                                <div class="ellipsis-text">${item.url}</div>
+                                <div style="font-size:12px; color:#86868b; font-weight:600;">자막:${scam} | 영상:${df}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (e) { console.error("피드 로딩 실패", e); }
+        }
+
+        function updateThumb() {
+            const url = document.getElementById('urlInput').value;
+            const reg = /^.*(?:(?:youtu\.be\/|v\/|vi\/|u\/\w\/|embed\/|shorts\/)|(?:(?:watch)?\?v=))([^#&?]*).*/;
+            const match = url.match(reg);
+            const id = (match && match[1].length === 11) ? match[1] : false;
+            if(id) {
+                document.getElementById('previewImg').src = `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
+                document.getElementById('thumbContainer').style.display = 'block';
+            } else { document.getElementById('thumbContainer').style.display = 'none'; }
+        }
+
+        function initAnalysis(msg) {
+            document.getElementById('analysisWrapper').classList.remove('result-active');
+            document.getElementById('statusArea').style.display = 'block';
+            document.getElementById('log').innerText = msg;
+            document.getElementById('progressBar').style.width = '40%';
+            document.querySelectorAll('button').forEach(b => b.disabled = true);
+        }
+
+        function showResult(title, probLabel, probValue, scams) {
+            const wrapper = document.getElementById('analysisWrapper');
+            const card = document.getElementById('resultCard');
+            const fill = document.getElementById('gaugeFill');
+            const notice = document.getElementById('cautionNotice');
+            
+            const isDanger = title.includes('위험') || title.includes('의심');
+            const isWarning = title.includes('주의');
+            const themeColor = isDanger ? '#ff453a' : (isWarning ? '#ff9f0a' : '#32d74b');
+            
+            const bgColor = isDanger ? '#fff0f0' : (isWarning ? '#fff8ed' : '#f2fff5');
+            const noticeBg = isDanger ? 'rgba(255, 69, 58, 0.1)' : 'rgba(255, 159, 10, 0.15)';
+            const tagBgColor = isDanger ? 'rgba(255, 69, 58, 0.1)' : (isWarning ? 'rgba(255, 159, 10, 0.1)' : 'rgba(50, 215, 75, 0.1)');
+
+            card.style.background = bgColor;
+            document.getElementById('resTitle').innerText = title;
+            document.getElementById('resTitle').style.color = themeColor;
+            
+            if (isWarning || isDanger) {
+                notice.style.display = 'block';
+                notice.style.background = noticeBg;
+                notice.style.color = themeColor;
+                notice.innerHTML = isWarning 
+                    ? "의심스러운 패턴이 감지되었습니다.<br>아래 탐지된 텍스트 내용에 각별히 주의하시기 바랍니다." 
+                    : "강력한 사기 징후가 포착되었습니다.<br>즉시 시청을 중단하고 개인정보 제공에 유의하십시오.";
+            } else {
+                notice.style.display = 'none';
+            }
+
+            document.getElementById('resProbValue').innerText = probValue;
+            document.getElementById('resProbValue').style.color = themeColor;
+            fill.style.background = themeColor;
+            fill.style.width = probValue.match(/\d+/)[0] + '%';
+
+            let reasonHtml = "";
+            if(scams && scams.length > 0) {
+                scams.forEach(s => {
+                    let tagsHtml = "";
+                    if(s.reason && s.reason.length > 0) {
+                        s.reason.forEach(r => {
+                            tagsHtml += `<span class="reason-tag" style="background:${tagBgColor}; color:${themeColor}">${r.keyword}</span> ${r.description}<br>`;
+                        });
+                    }
+                    reasonHtml += `<div style="margin-bottom:10px;">${tagsHtml}<small style="opacity:0.6; font-weight:700;">분석된 주의 텍스트:</small><div class="detected-text-box">${s.text}</div></div></div>`;
+                });
+            }
+            document.getElementById('resReasons').innerHTML = reasonHtml;
+            
+            document.getElementById('statusArea').style.display = 'none';
+            wrapper.classList.add('result-active');
+        }
+
+        async function startScam() {
+            const url = document.getElementById('urlInput').value;
+            if(!url) return;
+            initAnalysis('자막 패턴 정밀 분석 중...');
+            try {
+                const r = await fetch(`/youtube-scam?url=${encodeURIComponent(url)}`, { method: 'POST' });
+                const d = await r.json();
+                showResult(d.status, `자막 사기 확률`, d.highest_probability, d.detected_scams);
+            } catch(e) { document.getElementById('log').innerText = '데이터 획득 실패'; }
+            finally { document.querySelectorAll('button').forEach(b => b.disabled = false); loadFeed(); }
+        }
+
+        async function startDeepfake() {
+            const url = document.getElementById('urlInput').value;
+            if(!url) return;
+            initAnalysis('영상 변조 패턴 검증 중...');
+            try {
+                const r = await fetch(`/deepfake?url=${encodeURIComponent(url)}`, { method: 'POST' });
+                const d = await r.json();
+                showResult(d.message, `영상 변조 신뢰도`, `${d.confidence}%`, []);
+            } catch(e) { document.getElementById('log').innerText = '영상 분석 실패'; }
+            finally { document.querySelectorAll('button').forEach(b => b.disabled = false); loadFeed(); }
+        }
+
+        window.onload = () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const targetUrl = urlParams.get('url');
+            if (targetUrl) {
+                document.getElementById('urlInput').value = decodeURIComponent(targetUrl);
+                updateThumb();
+            }
+            loadFeed();
+        };
+    </script>
+</body>
+</html>
